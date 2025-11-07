@@ -1,6 +1,7 @@
 """Fusion Core Streaming Helper"""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from io import BufferedIOBase
 from pathlib import Path
 
 from aiofile import async_open
@@ -8,7 +9,18 @@ from aiofile import async_open
 from .logging import get_logger
 
 _LOGGER = get_logger('helper.streaming')
-DEFAULT_CHUNK_SIZE = 64 * 1024
+DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024
+
+
+def stream_from_fobj(
+    fobj: BufferedIOBase, chunk_size: int = DEFAULT_CHUNK_SIZE
+) -> Iterator[bytes]:
+    """Stream from file object"""
+    while True:
+        chunk = fobj.read(chunk_size)
+        if not chunk:
+            break
+        yield chunk
 
 
 async def stream_from_text(
