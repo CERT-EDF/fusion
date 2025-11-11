@@ -9,6 +9,7 @@ from edf_fusion.concept import Case as FusionCase
 from edf_fusion.concept import Event as FusionEvent
 from edf_fusion.concept import Identity, Info
 from edf_fusion.helper.logging import get_logger
+from edf_fusion.helper.redis import setup_redis
 from edf_fusion.server.auth import FusionAuthAPI, FusionAuthAPIConfig
 from edf_fusion.server.case import (
     AttachContext,
@@ -77,7 +78,9 @@ async def _enumerate_cases_impl(_ctx: EnumerateContext) -> list[Case]:
 
 async def _init_app():
     webapp = Application()
+    redis = setup_redis(webapp, 'redis://localhost')
     fusion_auth_api = FusionAuthAPI(
+        redis=redis,
         config=FusionAuthAPIConfig.from_dict(
             {
                 'backend': {

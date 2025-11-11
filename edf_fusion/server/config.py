@@ -14,6 +14,7 @@ class FusionServerConfig(Loadable):
 
     host: str
     port: int
+    redis_url: str
     client_max_size: int
 
     @classmethod
@@ -21,6 +22,7 @@ class FusionServerConfig(Loadable):
         return cls(
             host=dct['host'],
             port=dct['port'],
+            redis_url=dct['redis_url'],
             client_max_size=dct['client_max_size'],
         )
 

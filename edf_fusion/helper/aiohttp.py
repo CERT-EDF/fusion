@@ -1,7 +1,7 @@
 """Fusion Core aiohttp Helper"""
 
 from collections.abc import AsyncIterator
-from json import JSONDecodeError, dumps, loads
+from json import JSONDecodeError
 from uuid import UUID
 
 from aiohttp import (
@@ -16,7 +16,8 @@ from aiohttp_sse import sse_response
 
 from ..concept import Concept, ConceptType
 from .logging import get_logger
-from .pubsub import DEFAULT_CHANNEL, PubSub
+from .pubsub import PubSub
+from .serializing import load_json
 from .streaming import DEFAULT_CHUNK_SIZE
 
 Data = dict | list | str | None
@@ -118,17 +119,16 @@ async def pubsub_sse_response(
     request: Request,
     pubsub: PubSub,
     client_guid: str,
-    channel: str = DEFAULT_CHANNEL,
+    channel: str | None = None,
 ) -> StreamResponse:
     """Pubsub-based SSE response"""
     async with sse_response(request) as response:
         try:
             while response.is_connected():
-                async for event in pubsub.subscribe(client_guid, channel):
-                    data = dumps(event.to_dict(), separators=(',', ':'))
+                async for data in pubsub.subscribe(client_guid, channel):
                     await response.send(data)
         finally:
-            await pubsub.unsubscribe(client_guid)
+            pubsub.unsubscribe(client_guid)
         return response
 
 
@@ -144,6 +144,6 @@ async def sse_client(
             line = line.strip().decode('utf-8')
             if not line.startswith('data: '):
                 continue
-            dct = loads(line[6:])
+            dct = load_json(line[6:])
             concept = concept_cls.from_dict(dct)
             yield concept
