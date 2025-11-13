@@ -16,11 +16,13 @@ from aiohttp.web import (
 )
 from aiohttp_session import get_session, new_session
 from aiohttp_session import setup as setup_session
-from aiohttp_session.cookie_storage import EncryptedCookieStorage
+from aiohttp_session.redis_storage import RedisStorage
+from redis.asyncio import Redis
 
 from ...concept import Case, Identity
 from ...helper.aiohttp import client_ip, json_response
 from ...helper.logging import get_logger
+from ...helper.redis import create_redis_lock
 from ...helper.tracing import trace_user_op
 from ..storage import get_fusion_storage
 from .backend import FusionAuthBackend, instanciate_auth
@@ -53,6 +55,7 @@ def can_access_case(identity: Identity, case: Case) -> bool:
 class FusionAuthAPI:
     """Fusion Auth API"""
 
+    redis: Redis
     config: FusionAuthAPIConfig
     authorize_impl: (
         Callable[[Identity, Request, dict], Awaitable[bool]] | None
@@ -81,15 +84,15 @@ class FusionAuthAPI:
                 get('/api/auth/identities', self.retrieve_identities),
             ]
         )
-        storage = EncryptedCookieStorage(
-            self.config.cookie.secret_key,
+        storage = RedisStorage(
+            self.redis,
+            cookie_name=self.config.cookie.name,
             domain=self.config.cookie.domain,
             max_age=self.config.cookie.max_age,
             path=self.config.cookie.path,
             secure=self.config.cookie.secure,
             httponly=self.config.cookie.httponly,
             samesite=self.config.cookie.samesite,
-            cookie_name=self.config.cookie.name,
         )
         setup_session(webapp, storage)
         _LOGGER.info("auth api installed.")
@@ -172,7 +175,9 @@ class FusionAuthAPI:
             trace_user_op(ip_identity, 'login', granted=False)
             return json_response(status=400, message="Login failed")
         storage = get_fusion_storage(request)
-        await storage.store_identity(identity)
+        lock = create_redis_lock(self.redis, 'identity-cache-lock')
+        async with lock:
+            await storage.store_identity(identity)
         session[_USERNAME_FIELD] = identity.username
         trace_user_op(ip_identity, 'login', granted=True)
         return json_response(data=identity.to_dict())

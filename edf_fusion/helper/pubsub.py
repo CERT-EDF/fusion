@@ -1,76 +1,77 @@
 """Fusion Core Pub/Sub Helper"""
 
-from asyncio import Event, Queue
+from asyncio import Event
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from functools import partial
 
-from ..concept import Concept
+from redis.asyncio import Redis
 
-DEFAULT_CHANNEL = 'general'
+from ..concept import Concept, ConceptType
+from .serializing import dump_json, load_json
+
+__TERMINATE__ = '__TERMINATE__'
 
 
 @dataclass(kw_only=True)
 class PubSub:
     """Publisher Subscriber System"""
 
+    redis: Redis
+    default_channel: str = 'fusion-pubsub-general'
     _terminating: Event = field(default_factory=Event)
-    _channels: dict[str, dict[str, Queue[Concept | None]]] = field(
-        default_factory=dict
+    _subscribers: dict[str, set[str]] = field(
+        default_factory=partial(defaultdict, set)
     )
 
-    async def subscribers(self, channel: str) -> list[str]:
-        """Retrieve channel subscribers"""
-        subscribers = self._channels.get(channel)
-        if not subscribers:
-            return []
-        return list(subscribers.keys())
-
-    async def publish(self, concept: Concept, channel: str = DEFAULT_CHANNEL):
+    async def publish(self, concept: Concept, channel: str | None = None):
         """Publish"""
-        subscribers = self._channels.get(channel)
-        if not subscribers:
-            return
-        for queue in subscribers.values():
-            await queue.put(concept)
+        channel = channel or self.default_channel
+        message = dump_json(concept.to_dict())
+        await self.redis.publish(channel, message)
 
     async def subscribe(
-        self, client_guid: str, channel: str = DEFAULT_CHANNEL
-    ) -> AsyncIterator[Concept]:
+        self,
+        client_guid: str,
+        channel: str | None = None,
+        concept_cls: ConceptType | None = None,
+    ) -> AsyncIterator[str | Concept]:
         """Subscribe"""
+        channel = channel or self.default_channel
         if self._terminating.is_set():
             return
-        # create channel if needed
-        if channel not in self._channels:
-            self._channels[channel] = {}
-        subscribers = self._channels[channel]
-        # create subscriber queue if needed
-        if client_guid not in subscribers:
-            subscribers[client_guid] = Queue()
+        # register subscriber
+        self._subscribers[channel].add(client_guid)
         # loop until unsubscribe is called
-        while True:
-            queue = subscribers.get(client_guid)
-            if not queue:
-                break
-            concept = await queue.get()
-            if concept is None:
-                break
-            yield concept
-            queue.task_done()
+        async with self.redis.pubsub() as pubsub:
+            await pubsub.subscribe(channel)
+            while True:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=None
+                )
+                if message is None:
+                    continue
+                data = message['data'].decode()
+                if data == __TERMINATE__:
+                    break
+                if not concept_cls:
+                    yield data
+                    continue
+                yield concept_cls.from_dict(load_json(data))
 
-    async def unsubscribe(
-        self, client_guid: str, channel: str = DEFAULT_CHANNEL
-    ):
+    def unsubscribe(self, client_guid: str, channel: str | None = None):
         """Unsubscribe"""
-        subscribers = self._channels.get(channel)
-        if not subscribers:
-            return
-        queue = subscribers.pop(client_guid, None)
-        if queue is not None:
-            await queue.put(None)
+        channel = channel or self.default_channel
+        self._subscribers[channel].discard(client_guid)
+
+    def subscribers(self, channel: str | None = None) -> set[str]:
+        """Retrieve channel subscribers"""
+        channel = channel or self.default_channel
+        return self._subscribers[channel]
 
     async def terminate(self):
         """Terminate all subscriptions"""
         self._terminating.set()
-        for subscribers in self._channels.values():
-            for client_guid in subscribers:
-                await self.unsubscribe(client_guid)
+        for channel in self._subscribers.keys():
+            await self.redis.publish(channel, __TERMINATE__)

@@ -11,7 +11,6 @@ from aiohttp.web import Application, Request
 
 from ..concept import Case, Identities, Identity
 from ..helper.filesystem import disk_usage
-from ..helper.flock import Flock
 from ..helper.logging import get_logger
 from .config import FusionStorageConfig
 
@@ -160,12 +159,11 @@ class FusionStorage:
     async def store_identity(self, identity: Identity):
         """Store identity"""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        async with Flock(filepath=self.identity_cache):
-            identities = Identities()
-            if self.identity_cache.is_file():
-                identities = Identities.from_filepath(self.identity_cache)
-            identities.store(identity)
-            identities.to_filepath(self.identity_cache)
+        identities = Identities()
+        if self.identity_cache.is_file():
+            identities = Identities.from_filepath(self.identity_cache)
+        identities.store(identity)
+        identities.to_filepath(self.identity_cache)
 
     async def enumerate_identities(self) -> AsyncIterator[Identity]:
         """Enumerate identities"""

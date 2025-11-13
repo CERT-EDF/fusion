@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from aiohttp.web import Application, HTTPBadRequest, Request, get
+from redis.asyncio import Redis
 
 from ...concept import Case, EventType
 from ...helper.aiohttp import get_guid, pubsub_sse_response
@@ -21,6 +22,7 @@ _FUSION_EVENT_API = 'fusion_evt_api'
 class FusionEventAPI:
     """Fusion Event API"""
 
+    redis: Redis
     config: FusionEventAPIConfig
     event_cls: EventType
     _pubsub: PubSub | None = None
@@ -49,7 +51,7 @@ class FusionEventAPI:
             self.config.api_key, self.config.timeout
         )
         async with session:
-            self._pubsub = PubSub()
+            self._pubsub = PubSub(redis=self.redis)
             self._notifier = FusionNotifier(
                 session=session, api_ssl=self.config.api_ssl
             )
@@ -69,7 +71,8 @@ class FusionEventAPI:
         if self.config.webhook:
             webhooks.append(self.config.webhook)
         event = self.event_cls(category=category, case=case, ext=ext)
-        await self._pubsub.publish(event, str(case.guid))
+        channel = f'fusion-pubsub-case-{case.guid}'
+        await self._pubsub.publish(event, channel)
         status_map = await self._notifier.notify(event, webhooks)
         return status_map
 
@@ -88,8 +91,9 @@ class FusionEventAPI:
             raise HTTPBadRequest(reason="Failed to retrieve case from GUID")
         ext = {'username': identity.username}
         await self.notify(category='subscribe', case=case, ext=ext)
+        channel = f'fusion-pubsub-case-{case.guid}'
         response = await pubsub_sse_response(
-            request, self._pubsub, identity.username, str(case_guid)
+            request, self._pubsub, identity.username, channel
         )
         await self.notify(category='unsubscribe', case=case, ext=ext)
         return response
