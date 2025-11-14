@@ -157,6 +157,7 @@ class FusionAuthAPIConfig(Loadable):
     backend: AuthBackendConfig
     clients: list[Client]
     iron_key: str | None
+    can_delete_acs: set[str]
 
     @cached_property
     def key_name_mapping(self) -> dict[str, str]:
@@ -189,4 +190,5 @@ class FusionAuthAPIConfig(Loadable):
             backend=AuthBackendConfig.from_dict(dct['backend']),
             clients=[Client.from_dict(item) for item in dct['clients']],
             iron_key=dct['iron_key'],
+            can_delete_acs=set(dct.get('can_delete_acs', [])),
         )
