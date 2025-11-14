@@ -4,6 +4,7 @@ from .config import FusionCaseAPIConfig
 from .context import (
     AttachContext,
     CreateContext,
+    DeleteContext,
     EnumerateContext,
     RetrieveContext,
     UpdateContext,

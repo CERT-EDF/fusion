@@ -14,6 +14,7 @@ from edf_fusion.server.auth import FusionAuthAPI, FusionAuthAPIConfig
 from edf_fusion.server.case import (
     AttachContext,
     CreateContext,
+    DeleteContext,
     EnumerateContext,
     FusionCaseAPI,
     FusionCaseAPIConfig,
@@ -65,6 +66,10 @@ async def _update_case_impl(ctx: UpdateContext) -> Case | None:
     return case
 
 
+async def _delete_case_impl(ctx: DeleteContext) -> bool:
+    return bool(_CASES.pop(ctx.case_guid, None))
+
+
 async def _retrieve_case_impl(ctx: RetrieveContext) -> Case | None:
     case = _CASES.get(ctx.case_guid)
     if not case:
@@ -113,6 +118,7 @@ async def _init_app():
         attach_case_impl=_attach_case_impl,
         create_case_impl=_create_case_impl,
         update_case_impl=_update_case_impl,
+        delete_case_impl=_delete_case_impl,
         retrieve_case_impl=_retrieve_case_impl,
         enumerate_cases_impl=_enumerate_cases_impl,
     )

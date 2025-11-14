@@ -148,6 +148,10 @@ class FusionStorage:
         """Update case"""
         raise NotImplementedError
 
+    async def delete_case(self, case_guid: UUID) -> bool:
+        """Delete case"""
+        raise NotImplementedError
+
     async def retrieve_case(self, case_guid: UUID) -> Case | None:
         """Retrieve case"""
         raise NotImplementedError

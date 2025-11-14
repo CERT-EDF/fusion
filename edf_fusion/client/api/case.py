@@ -43,6 +43,12 @@ class FusionCaseAPIClient:
             endpoint, concept=case, concept_cls=self.case_cls
         )
 
+    async def delete_case(self, case: Case) -> bool:
+        """Delete an existing case"""
+        _LOGGER.info("deleting case %s", case.guid)
+        endpoint = f'/api/case/{case.guid}'
+        return await self.fusion_client.delete(endpoint)
+
     async def retrieve_case(self, case_guid: UUID) -> Case | None:
         """Retrieve case information"""
         _LOGGER.info("retrieving case %s", case_guid)

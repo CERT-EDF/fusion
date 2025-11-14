@@ -34,9 +34,16 @@ _FUSION_AUTH_API = 'fusion_auth_api'
 FUSION_API_TOKEN_HEADER = 'X-Fusion-API-Token'
 
 
-def _unauthorized(request: Request, operation: str, context: dict):
+def _unauthorized(
+    request: Request,
+    operation: str,
+    context: dict,
+    identity: Identity | None = None,
+):
+    if not identity:
+        identity = Identity(username=client_ip(request))
     trace_user_op(
-        Identity(username=client_ip(request)),
+        identity,
         operation,
         granted=False,
         context=context,
@@ -66,10 +73,11 @@ class FusionAuthAPI:
         """Authentication backend"""
         return instanciate_auth(self.config.backend)
 
-    def _check_backend_availability(self, request: Request):
+    def _check_backend_availability(self):
         if self.backend is None:
             _LOGGER.warning("authentication backend is not available")
-            _unauthorized(request, 'retrieve_config', {})
+            return False
+        return True
 
     def setup(self, webapp: Application):
         """Setup web application routes"""
@@ -101,6 +109,38 @@ class FusionAuthAPI:
         """Determine if identity can access case"""
         return can_access_case(identity, case)
 
+    def _is_api_access_granted(self, request: Request) -> Identity | None:
+        key = request.headers.get(FUSION_API_TOKEN_HEADER)
+        username = self.config.key_name_mapping.get(key)
+        if username:
+            return Identity(username=username)
+        return None
+
+    def _is_user_authorization_implemented(self) -> bool:
+        # if authentication backend is not available
+        if not self._check_backend_availability():
+            return False
+        # if authorization impl is not available
+        if self.authorize_impl is None:
+            _LOGGER.warning("authorization callback is not available")
+            return False
+        return True
+
+    async def _get_identity_from_request(
+        self, request: Request
+    ) -> Identity | None:
+        _LOGGER.debug("request headers: %s", request.headers)
+        session = await get_session(request)
+        username = session.get(_USERNAME_FIELD)
+        if not username:
+            _LOGGER.debug("username not found in session")
+            return None
+        identity = await self.backend.is_logged(username)
+        if not identity:
+            _LOGGER.debug("identity not found for username: %s", username)
+            return None
+        return identity
+
     async def authorize(
         self,
         request: Request,
@@ -110,32 +150,25 @@ class FusionAuthAPI:
     ) -> Identity:
         """Authorize request or raise an exception"""
         context = context or {}
-        # grant access to api client or not
-        key = request.headers.get(FUSION_API_TOKEN_HEADER)
-        username = self.config.key_name_mapping.get(key)
-        if username:
-            identity = Identity(username=username)
+        # grant access to api client or not (all operations are authorized)
+        identity = self._is_api_access_granted(request)
+        if identity:
             trace_user_op(identity, operation, granted=True, context=context)
             return identity
-        # if authentication backend is not available
-        if self.backend is None:
-            _LOGGER.warning("authentication backend is not available")
-            _unauthorized(request, operation, context)
-        # if authorization impl is not available
-        if self.authorize_impl is None:
-            _LOGGER.warning("authorization callback is not available")
+        # determine if user access is implemented (backend and callback)
+        if not self._is_user_authorization_implemented():
             _unauthorized(request, operation, context)
         # grant access to authenticated user or not
-        _LOGGER.debug("request headers: %s", request.headers)
-        session = await get_session(request)
-        username = session.get(_USERNAME_FIELD)
-        if not username:
-            _LOGGER.debug("username not found in session")
-            _unauthorized(request, operation, context)
-        identity = await self.backend.is_logged(username)
+        identity = await self._get_identity_from_request(request)
         if not identity:
-            _LOGGER.debug("identity not found for username: %s", username)
             _unauthorized(request, operation, context)
+        # prevent delete operation from unauthorized users
+        is_delete_op = context.get('is_delete_op', False)
+        if is_delete_op and not self.config.can_delete_acs.intersection(
+            identity.acs
+        ):
+            _unauthorized(request, operation, context, identity)
+        # call service specific authorization implementation
         try:
             granted = await self.authorize_impl(identity, request, context)
         except:
@@ -158,9 +191,11 @@ class FusionAuthAPI:
 
     async def login(self, request: Request) -> Response:
         """Authenticate user"""
-        self._check_backend_availability(request)
-        session = await new_session(request)
         ip_identity = Identity(username=client_ip(request))
+        if not self._check_backend_availability():
+            trace_user_op(ip_identity, 'login', granted=False)
+            return json_response(status=501, message="Backend not available")
+        session = await new_session(request)
         try:
             body = await request.json()
         except JSONDecodeError:
@@ -184,7 +219,10 @@ class FusionAuthAPI:
 
     async def logout(self, request: Request) -> Response:
         """Deauthenticate user"""
-        self._check_backend_availability(request)
+        ip_identity = Identity(username=client_ip(request))
+        if not self._check_backend_availability():
+            trace_user_op(ip_identity, 'logout', granted=False)
+            return json_response(status=501, message="Backend not available")
         identity = await self.authorize(request, 'logout')
         await self.backend.logout(identity)
         session = await get_session(request)
@@ -194,7 +232,10 @@ class FusionAuthAPI:
     async def retrieve_config(self, request: Request) -> Response:
         """Retrieve authentication backend configuration"""
         # if authentication backend is not available
-        self._check_backend_availability(request)
+        ip_identity = Identity(username=client_ip(request))
+        if not self._check_backend_availability():
+            trace_user_op(ip_identity, 'retrieve_config', granted=False)
+            return json_response(status=501, message="Backend not available")
         info = await self.backend.info()
         return json_response(data=info.to_dict())
 
