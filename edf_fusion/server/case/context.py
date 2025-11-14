@@ -46,6 +46,13 @@ class UpdateContext(Context):
 
 
 @dataclass(kw_only=True)
+class DeleteContext(Context):
+    """Delete context"""
+
+    case_guid: UUID
+
+
+@dataclass(kw_only=True)
 class RetrieveContext(Context):
     """Retrieve context"""
 

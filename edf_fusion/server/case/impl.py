@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from aiohttp.web import Application, Request, Response, get, post, put
+from aiohttp.web import Application, Request, Response, delete, get, post, put
 
 from ...concept import Case, CaseType
 from ...helper.aiohttp import get_guid, get_json_body, json_response
@@ -13,6 +13,7 @@ from .config import FusionCaseAPIConfig
 from .context import (
     AttachContext,
     CreateContext,
+    DeleteContext,
     EnumerateContext,
     RetrieveContext,
     UpdateContext,
@@ -31,6 +32,7 @@ class FusionCaseAPI:
     attach_case_impl: Callable[[AttachContext], Awaitable[Case | None]]
     create_case_impl: Callable[[CreateContext], Awaitable[Case | None]]
     update_case_impl: Callable[[UpdateContext], Awaitable[Case | None]]
+    delete_case_impl: Callable[[DeleteContext], Awaitable[bool]]
     retrieve_case_impl: Callable[[RetrieveContext], Awaitable[Case | None]]
     enumerate_cases_impl: Callable[[EnumerateContext], Awaitable[list[Case]]]
 
@@ -43,6 +45,7 @@ class FusionCaseAPI:
                 get('/api/cases', self.enumerate_cases),
                 get('/api/case/{case_guid}', self.retrieve_case),
                 put('/api/case/{case_guid}', self.update_case),
+                delete('/api/case/{case_guid}', self.delete_case),
                 put(
                     '/api/case/{case_guid}/attach/{next_case_guid}',
                     self.attach_case,
@@ -111,6 +114,25 @@ class FusionCaseAPI:
         if not case:
             return json_response(status=400, message="Invalid case")
         return json_response(data=case.to_dict())
+
+    async def delete_case(self, request: Request) -> Response:
+        """Delete an existing case"""
+        fusion_auth_api = get_fusion_auth_api(request)
+        case_guid = get_guid(request, 'case_guid')
+        if not case_guid:
+            return json_response(status=400, message="Invalid GUID")
+        identity = await fusion_auth_api.authorize(
+            request,
+            'delete_case',
+            context={'case_guid': case_guid, 'is_delete_op': True},
+        )
+        ctx = DeleteContext(
+            request=request, identity=identity, case_guid=case_guid
+        )
+        deleted = await self.delete_case_impl(ctx)
+        if not deleted:
+            return json_response(status=400, message="Not deleted")
+        return json_response()
 
     async def retrieve_case(self, request: Request) -> Response:
         """Retrieve case information"""
