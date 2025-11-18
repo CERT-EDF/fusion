@@ -9,7 +9,7 @@ from ...concept import Case, EventType
 from ...helper.aiohttp import get_guid, pubsub_sse_response
 from ...helper.logging import get_logger
 from ...helper.notifier import FusionNotifier, create_notifier_session
-from ...helper.pubsub import PubSub
+from ...helper.pubsub import PubSub, case_pubsub_channel
 from ..auth import get_fusion_auth_api
 from ..storage import get_fusion_storage
 from .config import FusionEventAPIConfig
@@ -53,28 +53,22 @@ class FusionEventAPI:
         async with session:
             self._pubsub = PubSub(redis=self.redis)
             self._notifier = FusionNotifier(
-                session=session, api_ssl=self.config.api_ssl
+                redis=self.redis,
+                session=session,
+                api_ssl=self.config.api_ssl,
+                webhooks=[self.config.webhook],
             )
             yield
-            await self._pubsub.terminate()
             self._notifier = None
-            self._pubsub = None
+            await self._pubsub.terminate()
         _LOGGER.info("cleanup event api...")
 
-    async def notify(
-        self, category: str, case: Case, ext: dict | None = None
-    ) -> dict[str, int]:
+    async def notify(self, category: str, case: Case, ext: dict | None = None):
         """Send event to endpoints (including global endpoint if set)"""
         if not self.config.enabled:
             return {}
-        webhooks = []
-        if self.config.webhook:
-            webhooks.append(self.config.webhook)
         event = self.event_cls(category=category, case=case, ext=ext)
-        channel = f'fusion-pubsub-case-{case.guid}'
-        await self._pubsub.publish(event, channel)
-        status_map = await self._notifier.notify(event, webhooks)
-        return status_map
+        await self._notifier.notify(event)
 
     async def subscribe(self, request: Request):
         """Subscribe to case event channel"""
@@ -91,7 +85,7 @@ class FusionEventAPI:
             raise HTTPBadRequest(reason="Failed to retrieve case from GUID")
         ext = {'username': identity.username}
         await self.notify(category='subscribe', case=case, ext=ext)
-        channel = f'fusion-pubsub-case-{case.guid}'
+        channel = case_pubsub_channel(case)
         response = await pubsub_sse_response(
             request, self._pubsub, identity.username, channel
         )

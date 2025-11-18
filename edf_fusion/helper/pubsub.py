@@ -8,10 +8,15 @@ from functools import partial
 
 from redis.asyncio import Redis
 
-from ..concept import Concept, ConceptType
+from ..concept import Case, Concept, ConceptType
 from .serializing import dump_json, load_json
 
 __TERMINATE__ = '__TERMINATE__'
+
+
+def case_pubsub_channel(case: Case) -> str:
+    """Generate pubsub channel name from case metadata"""
+    return f'fusion-pubsub-case-{case.guid}'
 
 
 @dataclass(kw_only=True)

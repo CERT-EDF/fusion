@@ -77,7 +77,7 @@ Most important helpers are listed in the following table.
 | `filesystem`  | Implements helpers for filesystem operations across services |
 | `flock`       | Implements file-based asynchronous locking |
 | `logging`     | Implements logging helpers |
-| `notifier`    | Implements `FusionNotifier` used for webhook notifications |
+| `notifier`    | Implements `FusionNotifier` used for webhook and redis pubsub notifications |
 | `pubsub`      | Implements publisher/subscriber notification queues (best effort) |
 | `serializing` | Implements serialization (`Dumpable`) and deserialization (`Loadable`) |
 | `streaming`   | Implements data streaming operations across services |
