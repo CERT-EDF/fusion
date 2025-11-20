@@ -5,7 +5,8 @@ from .api import (
     FusionCaseAPIClient,
     FusionConstantAPIClient,
     FusionDownloadAPIClient,
+    FusionEventAPIClient,
     FusionInfoAPIClient,
 )
-from .client import FusionClient, create_session
+from .impl import FusionClient, create_session
 from .config import FusionClientConfig

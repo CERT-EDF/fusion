@@ -3,7 +3,10 @@
 from dataclasses import dataclass
 
 from ...concept import AuthInfo, Concept, Identity
-from ..client import FusionClient
+from ...helper.logging import get_logger
+from ..impl import FusionClient
+
+_LOGGER = get_logger('client.api.auth')
 
 
 @dataclass(kw_only=True)
@@ -32,11 +35,13 @@ class FusionAuthAPIClient:
 
     async def is_logged(self) -> Identity | None:
         """Determine if user is authenticated"""
+        _LOGGER.info("checking if still logged in")
         endpoint = '/api/auth/is_logged'
         return await self.fusion_client.get(endpoint, concept_cls=Identity)
 
     async def login(self, username: str, password: str) -> Identity | None:
         """Authenticate user"""
+        _LOGGER.info("logging in as %s", username)
         creds = _Credentials(username=username, password=password)
         endpoint = '/api/auth/login'
         return await self.fusion_client.post(
@@ -45,15 +50,18 @@ class FusionAuthAPIClient:
 
     async def logout(self):
         """Deauthenticate user"""
+        _LOGGER.info("logging out")
         endpoint = '/api/auth/logout'
         return await self.fusion_client.get(endpoint)
 
     async def config(self) -> AuthInfo | None:
         """Authentication configuration"""
+        _LOGGER.info("retrieving authentication configuration")
         endpoint = '/api/auth/config'
         return await self.fusion_client.get(endpoint, concept_cls=AuthInfo)
 
     async def identities(self) -> list[Identity] | None:
         """Retrieve known identities"""
+        _LOGGER.info("retrieving identities")
         endpoint = '/api/auth/identities'
         return await self.fusion_client.get(endpoint, concept_cls=Identity)

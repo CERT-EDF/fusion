@@ -12,7 +12,7 @@ from ..helper.logging import get_logger
 from ..helper.streaming import stream_to_file
 from .config import FusionClientConfig
 
-_LOGGER = get_logger('client.client')
+_LOGGER = get_logger('client.impl')
 _APPLICATION_JSON = 'application/json'
 
 
@@ -45,8 +45,9 @@ class FusionClient:
             return None
         body = await response.json()
         if response.status >= 400:
-            _LOGGER.error("request failed with status=%d", response.status)
-            _LOGGER.error("server message: %s", body.get('message'))
+            func = _LOGGER.warning if response.status < 500 else _LOGGER.error
+            func("request failed with status=%d", response.status)
+            func("server message: %s", body.get('message'))
             return None
         if not concept_cls:
             return None  # caller does not expect a result

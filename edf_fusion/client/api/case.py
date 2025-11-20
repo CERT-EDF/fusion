@@ -5,7 +5,7 @@ from uuid import UUID
 
 from ...concept import Case, CaseType
 from ...helper.logging import get_logger
-from ..client import FusionClient
+from ..impl import FusionClient
 
 _LOGGER = get_logger('client.api.case')
 
@@ -43,10 +43,10 @@ class FusionCaseAPIClient:
             endpoint, concept=case, concept_cls=self.case_cls
         )
 
-    async def delete_case(self, case: Case) -> bool:
+    async def delete_case(self, case_guid: UUID) -> bool:
         """Delete an existing case"""
-        _LOGGER.info("deleting case %s", case.guid)
-        endpoint = f'/api/case/{case.guid}'
+        _LOGGER.info("deleting case %s", case_guid)
+        endpoint = f'/api/case/{case_guid}'
         return await self.fusion_client.delete(endpoint)
 
     async def retrieve_case(self, case_guid: UUID) -> Case | None:

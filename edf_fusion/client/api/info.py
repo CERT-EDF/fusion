@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from ...concept import Info
 from ...helper.logging import get_logger
-from ..client import FusionClient
+from ..impl import FusionClient
 
 _LOGGER = get_logger('client.api.info')
 
@@ -17,5 +17,6 @@ class FusionInfoAPIClient:
 
     async def info(self) -> Info | None:
         """Download file from server"""
+        _LOGGER.info("retrieving api info")
         endpoint = '/api/info'
         return await self.fusion_client.get(endpoint, concept_cls=Info)

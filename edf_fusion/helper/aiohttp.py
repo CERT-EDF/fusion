@@ -136,8 +136,9 @@ async def sse_client(
     session: ClientSession, endpoint: str, concept_cls: ConceptType, **kwargs
 ) -> AsyncIterator[Concept]:
     """SSE client"""
-    timeout = ClientTimeout()
-    async with session.get(endpoint, timeout=timeout, **kwargs) as response:
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = ClientTimeout()
+    async with session.get(endpoint, **kwargs) as response:
         if response.status != 200:
             return
         async for line in response.content:
