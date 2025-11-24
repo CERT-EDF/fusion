@@ -92,6 +92,11 @@ class FusionEventAPI:
         await self.notify(category='unsubscribe', case=case, ext=ext)
         return response
 
+    def subscribers(self, case: Case) -> set[str]:
+        """Retrieve a list of subscribers for given case"""
+        channel = case_pubsub_channel(case)
+        return self._pubsub.subscribers(channel)
+
 
 def get_fusion_evt_api(request: Request) -> FusionEventAPI:
     """Retrieve FusionEventAPI instance from request"""

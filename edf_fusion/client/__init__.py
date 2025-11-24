@@ -8,5 +8,5 @@ from .api import (
     FusionEventAPIClient,
     FusionInfoAPIClient,
 )
-from .impl import FusionClient, create_session
 from .config import FusionClientConfig
+from .impl import FusionClient, create_session
