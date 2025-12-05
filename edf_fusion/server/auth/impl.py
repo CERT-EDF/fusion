@@ -34,12 +34,13 @@ _FUSION_AUTH_API = 'fusion_auth_api'
 FUSION_API_TOKEN_HEADER = 'X-Fusion-API-Token'
 
 
-def _unauthorized(
+def _deny(
     request: Request,
     operation: str,
     context: dict,
     identity: Identity | None = None,
 ):
+    is_authenticated = bool(identity)
     if not identity:
         identity = Identity(username=client_ip(request))
     trace_user_op(
@@ -47,7 +48,7 @@ def _unauthorized(
         operation,
         granted=False,
         context=context,
-        exception=HTTPUnauthorized,
+        exception=HTTPForbidden if is_authenticated else HTTPUnauthorized,
     )
 
 
@@ -157,17 +158,17 @@ class FusionAuthAPI:
             return identity
         # determine if user access is implemented (backend and callback)
         if not self._is_user_authorization_implemented():
-            _unauthorized(request, operation, context)
+            _deny(request, operation, context)
         # grant access to authenticated user or not
         identity = await self._get_identity_from_request(request)
         if not identity:
-            _unauthorized(request, operation, context)
-        # prevent delete operation from unauthorized users
+            _deny(request, operation, context)
+        # prevent delete operation from users without privileges
         is_delete_op = context.get('is_delete_op', False)
         if is_delete_op and not self.config.can_delete_acs.intersection(
             identity.acs
         ):
-            _unauthorized(request, operation, context, identity)
+            _deny(request, operation, context, identity)
         # call service specific authorization implementation
         try:
             granted = await self.authorize_impl(identity, request, context)

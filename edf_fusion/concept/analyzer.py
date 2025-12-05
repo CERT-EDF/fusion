@@ -7,7 +7,7 @@ from .abc import Concept
 
 @dataclass(kw_only=True)
 class AnalyzerInfo(Concept):
-    """Neon Analyzer Info"""
+    """Fusion Analyzer Info"""
 
     name: str
     tags: set[str]
