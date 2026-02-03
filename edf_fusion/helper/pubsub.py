@@ -2,7 +2,7 @@
 
 from asyncio import Event
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -41,6 +41,7 @@ class PubSub:
         client_guid: str,
         channel: str | None = None,
         concept_cls: ConceptType | None = None,
+        terminate_cb: Callable[[], bool] | None = None,
     ) -> AsyncIterator[str | Concept]:
         """Subscribe"""
         channel = channel or self.default_channel
@@ -53,9 +54,13 @@ class PubSub:
             await pubsub.subscribe(channel)
             while True:
                 message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=None
+                    ignore_subscribe_messages=False, timeout=5
                 )
+                if terminate_cb and terminate_cb():
+                    break
                 if message is None:
+                    continue
+                if message['type'] != 'message':
                     continue
                 data = message['data'].decode()
                 if data == __TERMINATE__:

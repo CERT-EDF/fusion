@@ -127,7 +127,11 @@ async def pubsub_sse_response(
         try:
             for event in events:
                 await response.send(dump_json(event.to_dict()))
-            async for data in pubsub.subscribe(client_guid, channel):
+            async for data in pubsub.subscribe(
+                client_guid,
+                channel,
+                terminate_cb=lambda: not response.is_connected(),
+            ):
                 if not response.is_connected():
                     break
                 await response.send(data)
