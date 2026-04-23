@@ -28,6 +28,7 @@ class Case(Concept):
     name: str
     description: str
     acs: set[str] = field(default_factory=set)
+    acs_ro: set[str] = field(default_factory=set)
     webhooks: list[str] = field(default_factory=list)
 
     @classmethod
@@ -42,6 +43,7 @@ class Case(Concept):
             name=dct['name'],
             description=dct['description'],
             acs=set(dct['acs']),
+            acs_ro=set(dct.get('acs_ro', [])),
             webhooks=dct.get('webhooks', []),
         )
 
@@ -56,6 +58,7 @@ class Case(Concept):
             'name': self.name,
             'description': self.description,
             'acs': list(sorted(self.acs)),
+            'acs_ro': list(sorted(self.acs_ro)),
             'webhooks': self.webhooks,
         }
 
@@ -74,6 +77,7 @@ class Case(Concept):
         self.name = dct.get('name', self.name)
         self.description = dct.get('description', self.description)
         self.acs = set(dct.get('acs', self.acs))
+        self.acs_ro = set(dct.get('acs_ro', self.acs_ro))
         self.webhooks = dct.get('webhooks', self.webhooks)
 
 

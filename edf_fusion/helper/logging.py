@@ -9,7 +9,13 @@ from rich.logging import RichHandler
 
 DEBUG = int(getenv('FUSION_DEBUG', '0'))
 _LOGFILE = getenv('FUSION_LOGFILE')
-_HANDLERS = [RichHandler(console=Console(stderr=True), show_path=False)]
+_HANDLERS = [
+    RichHandler(
+        console=Console(stderr=True),
+        show_path=False,
+        omit_repeated_times=False,
+    )
+]
 if _LOGFILE and Path(_LOGFILE).parent.is_dir():
     _FORMATTER = Formatter(
         fmt="%(asctime)s %(levelname)s (%(name)s): %(message)s",
@@ -24,7 +30,7 @@ basicConfig(
     level='DEBUG' if DEBUG else 'INFO',
     format="(%(name)s): %(message)s",
     datefmt="[%Y-%m-%dT%H:%M:%S]",
-    handlers=[RichHandler(console=Console(stderr=True), show_path=False)],
+    handlers=_HANDLERS,
     force=True,
 )
 

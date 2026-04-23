@@ -8,10 +8,12 @@ from shutil import rmtree
 from uuid import UUID
 
 from aiohttp.web import Application, Request
+from redis.asyncio import Redis
 
 from ..concept import Case, Identities, Identity
 from ..helper.filesystem import disk_usage
 from ..helper.logging import get_logger
+from ..helper.redis import create_redis_lock
 from .config import FusionStorageConfig
 
 _LOGGER = get_logger('server.storage')
@@ -101,6 +103,7 @@ class ConceptStorage:
 class FusionStorage:
     """Storage ABC"""
 
+    redis: Redis
     config: FusionStorageConfig
 
     @cached_property
@@ -162,12 +165,18 @@ class FusionStorage:
 
     async def store_identity(self, identity: Identity):
         """Store identity"""
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        identities = Identities()
-        if self.identity_cache.is_file():
-            identities = Identities.from_filepath(self.identity_cache)
-        identities.store(identity)
-        identities.to_filepath(self.identity_cache)
+        name = 'identity-cache-known-usernames'
+        if await self.redis.hexists(name, identity.username):
+            return
+        await self.redis.hsetex(name, key=identity.username, value='', ex=300)
+        lock = create_redis_lock(self.redis, 'identity-cache-lock')
+        async with lock:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            identities = Identities()
+            if self.identity_cache.is_file():
+                identities = Identities.from_filepath(self.identity_cache)
+            identities.store(identity)
+            identities.to_filepath(self.identity_cache)
 
     async def enumerate_identities(self) -> AsyncIterator[Identity]:
         """Enumerate identities"""

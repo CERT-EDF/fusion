@@ -83,5 +83,4 @@ Most important helpers are listed in the following table.
 | `streaming`   | Implements data streaming operations across services |
 | `subprocess`  | Implements subprocess operations across services |
 | `timer`       | Implements `Timer` |
-| `tracing`     | Implements `trace_user_op` used to trace user operations across services |
 | `zip`         | Implements archive creation (`create_zip`) and extraction (`extract_zip`) |

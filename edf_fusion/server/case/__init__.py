@@ -9,4 +9,9 @@ from .context import (
     RetrieveContext,
     UpdateContext,
 )
-from .impl import FusionCaseAPI, get_fusion_case_api
+from .impl import (
+    ActionDeleteCase,
+    ActionUpdateCase,
+    FusionCaseAPI,
+    get_fusion_case_api,
+)

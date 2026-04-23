@@ -10,7 +10,7 @@ from ...helper.aiohttp import get_guid, pubsub_sse_response
 from ...helper.logging import get_logger
 from ...helper.notifier import FusionNotifier, create_notifier_session
 from ...helper.pubsub import PubSub, case_pubsub_channel
-from ..auth import get_fusion_auth_api
+from ..auth import Action, get_fusion_auth_api
 from ..storage import get_fusion_storage
 from .config import FusionEventAPIConfig
 
@@ -77,9 +77,8 @@ class FusionEventAPI:
         fusion_auth_api = get_fusion_auth_api(request)
         if not case_guid:
             raise HTTPBadRequest(reason="Invalid case GUID")
-        identity = await fusion_auth_api.authorize(
-            request, 'subscribe', context={'case_guid': case_guid}
-        )
+        action = Action(name='subscribe', context={'case_guid': case_guid})
+        identity = await fusion_auth_api.authorize(request, action)
         case = await fusion_storage.retrieve_case(case_guid)
         if not case_guid:
             raise HTTPBadRequest(reason="Failed to retrieve case from GUID")
@@ -92,7 +91,7 @@ class FusionEventAPI:
         usernames = list(self.subscribers(case))
         if identity.username not in usernames:
             usernames.append(identity.username)
-        ext = {"usernames": usernames}
+        ext = {'usernames': usernames}
         events = [self.event_cls(category='subscribers', case=case, ext=ext)]
         response = await pubsub_sse_response(
             request, self._pubsub, identity.username, channel, events
@@ -100,7 +99,7 @@ class FusionEventAPI:
         await self.notify(
             category='unsubscribe',
             case=case,
-            ext={"username": identity.username},
+            ext={'username': identity.username},
         )
         return response
 

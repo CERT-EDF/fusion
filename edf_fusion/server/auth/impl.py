@@ -1,7 +1,8 @@
 """Fusion Auth API Implementation"""
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from functools import cached_property
 from json import JSONDecodeError
 
@@ -22,11 +23,9 @@ from redis.asyncio import Redis
 from ...concept import Case, Identity
 from ...helper.aiohttp import client_ip, json_response
 from ...helper.logging import get_logger
-from ...helper.redis import create_redis_lock
-from ...helper.tracing import trace_user_op
 from ..storage import get_fusion_storage
 from .backend import FusionAuthBackend, instanciate_auth
-from .config import FusionAuthAPIConfig
+from .config import IRON_KEY_USERNAME, FusionAuthAPIConfig
 
 _LOGGER = get_logger('server.auth.impl')
 _USERNAME_FIELD = 'username'
@@ -34,29 +33,37 @@ _FUSION_AUTH_API = 'fusion_auth_api'
 FUSION_API_TOKEN_HEADER = 'X-Fusion-API-Token'
 
 
-def _deny(
-    request: Request,
-    operation: str,
-    context: dict,
-    identity: Identity | None = None,
+class Access(Enum):
+    """Access"""
+
+    READ = 'read'
+    CHANGE = 'change'
+
+
+@dataclass(kw_only=True)
+class Action:
+    """Action"""
+
+    name: str
+    change: bool = False
+    delete: bool = False
+    context: dict = field(default_factory=dict)
+
+
+def _trace_outcome(
+    action: Action,
+    identity: Identity,
+    *,
+    granted: bool,
+    exception: Exception | None = None,
 ):
-    is_authenticated = bool(identity)
-    if not identity:
-        identity = Identity(username=client_ip(request))
-    trace_user_op(
-        identity,
-        operation,
-        granted=False,
-        context=context,
-        exception=HTTPForbidden if is_authenticated else HTTPUnauthorized,
-    )
-
-
-def can_access_case(identity: Identity, case: Case) -> bool:
-    """Determine if identity can access case"""
-    if not case.acs:
-        return True
-    return bool(case.acs.intersection(identity.acs))
+    """Trace user operation and raise exception if needed"""
+    outcome = 'granted' if granted else 'refused'
+    log_fun = _LOGGER.info if granted else _LOGGER.warning
+    log_fun = _LOGGER.error if exception else log_fun
+    log_fun("(audit) %s %s %s", outcome, identity.username, action)
+    if exception:
+        raise exception
 
 
 @dataclass(kw_only=True)
@@ -65,20 +72,12 @@ class FusionAuthAPI:
 
     redis: Redis
     config: FusionAuthAPIConfig
-    authorize_impl: (
-        Callable[[Identity, Request, dict], Awaitable[bool]] | None
-    ) = None
+    authorize_impl: Callable[[Request, Action, Identity], Awaitable[bool]]
 
     @cached_property
     def backend(self) -> FusionAuthBackend | None:
         """Authentication backend"""
         return instanciate_auth(self.config.backend)
-
-    def _check_backend_availability(self):
-        if self.backend is None:
-            _LOGGER.warning("authentication backend is not available")
-            return False
-        return True
 
     def setup(self, webapp: Application):
         """Setup web application routes"""
@@ -106,28 +105,27 @@ class FusionAuthAPI:
         setup_session(webapp, storage)
         _LOGGER.info("auth api installed.")
 
-    def can_access_case(self, identity: Identity, case: Case) -> bool:
+    def can_access_case(self, identity: Identity, case: Case) -> Access | None:
         """Determine if identity can access case"""
-        return can_access_case(identity, case)
-
-    def _is_api_access_granted(self, request: Request) -> Identity | None:
-        key = request.headers.get(FUSION_API_TOKEN_HEADER)
-        username = self.config.key_name_mapping.get(key)
-        if username:
-            return Identity(username=username)
+        if not case.acs:
+            return Access.CHANGE
+        if case.acs_ro.intersection(identity.acs):
+            return Access.READ
+        if case.acs.intersection(identity.acs):
+            return Access.CHANGE
         return None
 
-    def _is_user_authorization_implemented(self) -> bool:
-        # if authentication backend is not available
-        if not self._check_backend_availability():
-            return False
-        # if authorization impl is not available
-        if self.authorize_impl is None:
-            _LOGGER.warning("authorization callback is not available")
+    def can_delete(self, identity: Identity) -> bool:
+        """Determine if identity can delete"""
+        return bool(self.config.can_delete_acs.intersection(identity.acs))
+
+    def _is_backend_available(self):
+        if self.backend is None:
+            _LOGGER.warning("authentication backend is not available")
             return False
         return True
 
-    async def _get_identity_from_request(
+    async def _get_web_client_identity(
         self, request: Request
     ) -> Identity | None:
         _LOGGER.debug("request headers: %s", request.headers)
@@ -142,89 +140,111 @@ class FusionAuthAPI:
             return None
         return identity
 
-    async def authorize(
-        self,
-        request: Request,
-        operation: str,
-        *,
-        context: dict | None = None,
-    ) -> Identity:
-        """Authorize request or raise an exception"""
-        context = context or {}
-        # grant access to api client or not (all operations are authorized)
-        identity = self._is_api_access_granted(request)
-        if identity:
-            trace_user_op(identity, operation, granted=True, context=context)
-            return identity
-        # determine if user access is implemented (backend and callback)
-        if not self._is_user_authorization_implemented():
-            _deny(request, operation, context)
-        # grant access to authenticated user or not
-        identity = await self._get_identity_from_request(request)
-        if not identity:
-            _deny(request, operation, context)
-        # prevent delete operation from users without privileges
-        is_delete_op = context.get('is_delete_op', False)
-        if is_delete_op and not self.config.can_delete_acs.intersection(
-            identity.acs
-        ):
-            _deny(request, operation, context, identity)
-        # call service specific authorization implementation
+    def _get_api_client_identity(self, request: Request) -> Identity | None:
+        key = request.headers.get(FUSION_API_TOKEN_HEADER)
+        return self.config.key_identity_dct.get(key)
+
+    async def _authorize_generic_client(
+        self, request: Request, action: Action, identity: Identity
+    ) -> bool:
+        # prevent delete operation if applicable
+        if action.delete and not self.can_delete(identity):
+            _trace_outcome(
+                action, identity, granted=False, exception=HTTPForbidden
+            )
+        # call service specific authorize_impl callback
         try:
-            granted = await self.authorize_impl(identity, request, context)
+            return await self.authorize_impl(request, action, identity)
         except:
             _LOGGER.exception("authorize_impl exception!")
-            granted = False
-        exception = None if granted else HTTPForbidden
-        trace_user_op(
-            identity,
-            operation,
-            granted=granted,
-            context=context,
-            exception=exception,
+            return False
+
+    async def _authorize_api_client(
+        self, request: Request, action: Action, identity: Identity
+    ) -> bool:
+        # iron key shortcut
+        if identity.username == IRON_KEY_USERNAME:
+            return True
+        # perform generic checks
+        return await self._authorize_generic_client(request, action, identity)
+
+    async def authorize(self, request: Request, action: Action) -> Identity:
+        """Authorize request or raise an exception"""
+        storage = get_fusion_storage(request)
+        ip_identity = Identity(username=client_ip(request))
+        # process robot identity (if any)
+        identity = self._get_api_client_identity(request)
+        if identity:
+            granted = await self._authorize_api_client(
+                request, action, identity
+            )
+            exception = None if granted else HTTPForbidden
+            _trace_outcome(
+                action, identity, granted=granted, exception=exception
+            )
+            await storage.store_identity(identity)
+            return identity
+        # determine if web client authentication is available
+        if not self._is_backend_available():
+            _trace_outcome(
+                action, ip_identity, granted=False, exception=HTTPForbidden
+            )
+        # process web client identity (if any)
+        identity = await self._get_web_client_identity(request)
+        if identity:
+            granted = await self._authorize_generic_client(
+                request, action, identity
+            )
+            exception = None if granted else HTTPForbidden
+            _trace_outcome(
+                action, identity, granted=granted, exception=exception
+            )
+            await storage.store_identity(identity)
+            return identity
+        # identity is missing
+        _trace_outcome(
+            action, ip_identity, granted=False, exception=HTTPUnauthorized
         )
-        return identity
 
     async def is_logged(self, request: Request) -> Response:
         """Determine if user is authenticated"""
-        identity = await self.authorize(request, 'is_logged')
+        action = Action(name='is_logged')
+        identity = await self.authorize(request, action)
         return json_response(data=identity.to_dict())
 
     async def login(self, request: Request) -> Response:
         """Authenticate user"""
+        action = Action(name='login')
         ip_identity = Identity(username=client_ip(request))
-        if not self._check_backend_availability():
-            trace_user_op(ip_identity, 'login', granted=False)
+        if not self._is_backend_available():
+            _trace_outcome(action, ip_identity, granted=False)
             return json_response(status=501, message="Backend not available")
         session = await new_session(request)
         try:
             body = await request.json()
         except JSONDecodeError:
-            trace_user_op(ip_identity, 'login', granted=False)
+            _trace_outcome(action, ip_identity, granted=False)
             return json_response(status=400, message="Bad request")
         data = body.get('data')
         if not data:
-            trace_user_op(ip_identity, 'login', granted=False)
+            _trace_outcome(action, ip_identity, granted=False)
             return json_response(status=400, message="Bad request")
         identity = await self.backend.login(data)
         if not identity:
-            trace_user_op(ip_identity, 'login', granted=False)
+            _trace_outcome(action, ip_identity, granted=False)
             return json_response(status=400, message="Login failed")
-        storage = get_fusion_storage(request)
-        lock = create_redis_lock(self.redis, 'identity-cache-lock')
-        async with lock:
-            await storage.store_identity(identity)
         session[_USERNAME_FIELD] = identity.username
-        trace_user_op(ip_identity, 'login', granted=True)
+        _trace_outcome(action, ip_identity, granted=True)
         return json_response(data=identity.to_dict())
 
     async def logout(self, request: Request) -> Response:
         """Deauthenticate user"""
+        action = Action(name='logout')
         ip_identity = Identity(username=client_ip(request))
-        if not self._check_backend_availability():
-            trace_user_op(ip_identity, 'logout', granted=False)
+        if not self._is_backend_available():
+            _trace_outcome(action, ip_identity, granted=False)
             return json_response(status=501, message="Backend not available")
-        identity = await self.authorize(request, 'logout')
+        identity = await self.authorize(request, action)
         await self.backend.logout(identity)
         session = await get_session(request)
         session.invalidate()
@@ -232,17 +252,18 @@ class FusionAuthAPI:
 
     async def retrieve_config(self, request: Request) -> Response:
         """Retrieve authentication backend configuration"""
-        # if authentication backend is not available
+        action = Action(name='retrieve_config')
         ip_identity = Identity(username=client_ip(request))
-        if not self._check_backend_availability():
-            trace_user_op(ip_identity, 'retrieve_config', granted=False)
+        if not self._is_backend_available():
+            _trace_outcome(action, ip_identity, granted=False)
             return json_response(status=501, message="Backend not available")
         info = await self.backend.info()
         return json_response(data=info.to_dict())
 
     async def retrieve_identities(self, request: Request) -> Response:
         """Retrieve stored identities"""
-        identity = await self.authorize(request, 'retrieve_identities')
+        action = Action(name='retrieve_identities')
+        identity = await self.authorize(request, action)
         storage = get_fusion_storage(request)
         identities = [
             identity.to_dict()

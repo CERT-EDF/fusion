@@ -7,7 +7,7 @@ from aiohttp.web import Application, Request, Response, get
 from ...concept import Info
 from ...helper.aiohttp import json_response
 from ...helper.logging import get_logger
-from ..auth import get_fusion_auth_api
+from ..auth import Action, get_fusion_auth_api
 from .config import FusionInfoAPIConfig
 
 _LOGGER = get_logger('server.info.impl')
@@ -36,7 +36,8 @@ class FusionInfoAPI:
         """Handle client request for info"""
         if self.config.auth_required:
             fusion_auth_api = get_fusion_auth_api(request)
-            await fusion_auth_api.authorize(request, 'retrieve_info')
+            action = Action(name='retrieve_info')
+            await fusion_auth_api.authorize(request, action)
         return json_response(data=self.info.to_dict())
 
 

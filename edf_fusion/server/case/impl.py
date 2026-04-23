@@ -8,7 +8,7 @@ from aiohttp.web import Application, Request, Response, delete, get, post, put
 from ...concept import Case, CaseType
 from ...helper.aiohttp import get_guid, get_json_body, json_response
 from ...helper.logging import get_logger
-from ..auth import get_fusion_auth_api
+from ..auth import Action, get_fusion_auth_api
 from .config import FusionCaseAPIConfig
 from .context import (
     AttachContext,
@@ -21,6 +21,24 @@ from .context import (
 
 _LOGGER = get_logger('server.case.impl')
 _FUSION_CASE_API = 'fusion_case_api'
+
+
+@dataclass(kw_only=True)
+class ActionUpdateCase(Action):
+    """Action - Update Case"""
+
+    name: str = 'update_case'
+    change: bool = True
+    delete: bool = False
+
+
+@dataclass(kw_only=True)
+class ActionDeleteCase(Action):
+    """Action - Delete Case"""
+
+    name: str = 'delete_case'
+    change: bool = True
+    delete: bool = True
 
 
 @dataclass(kw_only=True)
@@ -62,11 +80,15 @@ class FusionCaseAPI:
         next_case_guid = get_guid(request, 'next_case_guid')
         if not case_guid or not next_case_guid:
             return json_response(status=400, message="Invalid GUID")
-        identity = await fusion_auth_api.authorize(
-            request,
-            'attach_case',
-            context={'case_guid': case_guid, 'next_case_guid': next_case_guid},
+        action = Action(
+            name='attach_case',
+            change=True,
+            context={
+                'case_guid': case_guid,
+                'next_case_guid': next_case_guid,
+            },
         )
+        identity = await fusion_auth_api.authorize(request, action)
         ctx = AttachContext(
             request=request,
             identity=identity,
@@ -83,7 +105,8 @@ class FusionCaseAPI:
     async def create_case(self, request: Request) -> Response:
         """Create a case"""
         fusion_auth_api = get_fusion_auth_api(request)
-        identity = await fusion_auth_api.authorize(request, 'create_case')
+        action = Action(name='create_case', change=True)
+        identity = await fusion_auth_api.authorize(request, action)
         body = await get_json_body(request)
         if not isinstance(body, dict):
             return json_response(status=400, message="Invalid body")
@@ -99,11 +122,8 @@ class FusionCaseAPI:
         case_guid = get_guid(request, 'case_guid')
         if not case_guid:
             return json_response(status=400, message="Invalid GUID")
-        identity = await fusion_auth_api.authorize(
-            request,
-            'update_case',
-            context={'case_guid': case_guid},
-        )
+        action = ActionUpdateCase(context={'case_guid': case_guid})
+        identity = await fusion_auth_api.authorize(request, action)
         body = await get_json_body(request)
         if not isinstance(body, dict):
             return json_response(status=400, message="Invalid body")
@@ -121,11 +141,8 @@ class FusionCaseAPI:
         case_guid = get_guid(request, 'case_guid')
         if not case_guid:
             return json_response(status=400, message="Invalid GUID")
-        identity = await fusion_auth_api.authorize(
-            request,
-            'delete_case',
-            context={'case_guid': case_guid, 'is_delete_op': True},
-        )
+        action = ActionDeleteCase(context={'case_guid': case_guid})
+        identity = await fusion_auth_api.authorize(request, action)
         ctx = DeleteContext(
             request=request, identity=identity, case_guid=case_guid
         )
@@ -140,11 +157,8 @@ class FusionCaseAPI:
         case_guid = get_guid(request, 'case_guid')
         if not case_guid:
             return json_response(status=400, message="Invalid GUID")
-        identity = await fusion_auth_api.authorize(
-            request,
-            'retrieve_case',
-            context={'case_guid': case_guid},
-        )
+        action = Action(name='retrieve_case', context={'case_guid': case_guid})
+        identity = await fusion_auth_api.authorize(request, action)
         ctx = RetrieveContext(
             request=request, identity=identity, case_guid=case_guid
         )
@@ -156,7 +170,8 @@ class FusionCaseAPI:
     async def enumerate_cases(self, request: Request) -> Response:
         """Enumerate cases"""
         fusion_auth_api = get_fusion_auth_api(request)
-        identity = await fusion_auth_api.authorize(request, 'enumerate_cases')
+        action = Action(name='enumerate_cases')
+        identity = await fusion_auth_api.authorize(request, action)
         ctx = EnumerateContext(request=request, identity=identity)
         cases = await self.enumerate_cases_impl(ctx)
         data = [

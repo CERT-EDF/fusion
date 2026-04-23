@@ -1,0 +1,7 @@
+services:
+
+  fusion-redis-test:
+    image: redis:alpine
+    command: redis-server --loglevel warning
+    ports:
+      - 127.0.0.1:6379:6379

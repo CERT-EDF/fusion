@@ -7,7 +7,7 @@ from aiohttp.web import Application, Request, Response, get
 from ...concept import Concept, ConceptType
 from ...helper.aiohttp import json_response
 from ...helper.logging import get_logger
-from ..auth import get_fusion_auth_api
+from ..auth import Action, get_fusion_auth_api
 from .config import FusionConstantAPIConfig
 
 _LOGGER = get_logger('server.constant.impl')
@@ -56,7 +56,8 @@ class FusionConstantAPI:
         """Handle client request for constant"""
         if self.config.auth_required:
             fusion_auth_api = get_fusion_auth_api(request)
-            await fusion_auth_api.authorize(request, 'retrieve_constant')
+            action = Action(name='retrieve_constant')
+            await fusion_auth_api.authorize(request, action)
         cached_constant = self.cached_constant
         if not cached_constant:
             return json_response(status=503, message="Missing constant file")

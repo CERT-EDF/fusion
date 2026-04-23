@@ -6,7 +6,7 @@ from uuid import UUID
 from aiohttp.web import Request
 
 from ...concept import Identity
-from ..auth import IRON_SERVER_USERNAME
+from ..auth import IRON_KEY_USERNAME
 
 
 @dataclass(kw_only=True)
@@ -19,7 +19,7 @@ class Context:
     @property
     def managed(self):
         """Determine if request initiator is fusion server"""
-        return self.identity.username == IRON_SERVER_USERNAME
+        return self.identity.username == IRON_KEY_USERNAME
 
 
 @dataclass(kw_only=True)

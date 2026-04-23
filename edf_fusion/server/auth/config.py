@@ -6,13 +6,14 @@ from functools import cached_property
 from os import urandom
 from typing import Self
 
+from ...concept import Identity
 from ...helper.config import ConfigError
 from ...helper.logging import get_logger
 from ...helper.serializing import Loadable
 
-IRON_SERVER_USERNAME = 'iron_server'
-
 _LOGGER = get_logger('server.auth.config')
+
+IRON_KEY_USERNAME = f'iron-{urandom(16).hex()}'
 
 
 class AuthStrategy(Enum):
@@ -92,7 +93,7 @@ class KeycloakConfig(Loadable):
 class AuthBackendConfig(Loadable):
     """Auth Backend config"""
 
-    strategy: AuthStrategy
+    strategy: AuthStrategy | None
     basic: BasicConfig
     keycloak: KeycloakConfig
 
@@ -103,8 +104,9 @@ class AuthBackendConfig(Loadable):
 
     @classmethod
     def from_dict(cls, dct: dict) -> Self:
+        strategy = dct.get('strategy')
         return cls(
-            strategy=AuthStrategy(dct.get('strategy', 'basic')),
+            strategy=AuthStrategy(strategy) if strategy else None,
             basic=BasicConfig.from_dict(dct.get('basic', {})),
             keycloak=KeycloakConfig.from_dict(dct.get('keycloak', {})),
         )
@@ -114,12 +116,15 @@ class AuthBackendConfig(Loadable):
 class Client(Loadable):
     """Client"""
 
-    name: str
     key: str
+    identity: Identity
 
     @classmethod
     def from_dict(cls, dct: dict):
-        return cls(name=dct['name'], key=dct['key'])
+        return cls(
+            key=dct['key'],
+            identity=Identity.from_dict(dct['identity']),
+        )
 
 
 @dataclass(kw_only=True)
@@ -160,25 +165,29 @@ class FusionAuthAPIConfig(Loadable):
     can_delete_acs: set[str]
 
     @cached_property
-    def key_name_mapping(self) -> dict[str, str]:
+    def key_identity_dct(self) -> dict[str, str]:
         """Client key/name mapping"""
         self._validate()
-        key_name_mapping = {client.key: client.name for client in self.clients}
+        key_identity_dct = {
+            client.key: client.identity for client in self.clients
+        }
         if self.iron_key:
-            key_name_mapping[self.iron_key] = IRON_SERVER_USERNAME
-        return key_name_mapping
+            key_identity_dct[self.iron_key] = Identity(
+                username=IRON_KEY_USERNAME,
+            )
+        return key_identity_dct
 
     def _validate(self) -> bool:
         keys = set()
-        names = set()
+        usernames = set()
         for client in self.clients:
             keys.add(client.key)
-            names.add(client.name)
+            usernames.add(client.identity.username)
         if len(keys) != len(self.clients):
             raise ConfigError("client key collision")
-        if len(names) != len(self.clients):
+        if len(usernames) != len(self.clients):
             raise ConfigError("client name collision")
-        if IRON_SERVER_USERNAME in names:
+        if IRON_KEY_USERNAME in usernames:
             raise ConfigError("iron server name collision")
         if self.iron_key and self.iron_key in keys:
             raise ConfigError("iron server key collision")
