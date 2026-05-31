@@ -20,19 +20,20 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "rich~=14.1",
-    "redis~=7.0",
+    "rich~=15.0",
+    "redis~=8.0",
     "pyyaml~=6.0",
-    "aiofile~=3.9",
-    "aiohttp~=3.11",
+    "aiofile~=3.11",
+    "aiosqlite~=0.22",
+    "aiohttp~=3.14",
     "aiohttp-sse~=2.2",
     "aiohttp-session[secure]~=2.12",
 ]
 
 
 [project.optional-dependencies]
-auth_basic = ["argon2-cffi~=23.1"]
-auth_keycloak = ["python-keycloak~=4.7"]
+auth_basic = ["argon2-cffi~=25.1"]
+auth_keycloak = ["python-keycloak~=7.1"]
 
 
 [project.urls]
@@ -42,7 +43,7 @@ auth_keycloak = ["python-keycloak~=4.7"]
 
 
 [build-system]
-requires = ["setuptools>=78", "setuptools_scm>=8.2", "wheel"]
+requires = ["setuptools>=82", "setuptools_scm>=10", "wheel"]
 build-backend = "setuptools.build_meta"
 
 

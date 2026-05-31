@@ -116,27 +116,10 @@ class FusionStorage:
         """Identity cache file"""
         return self.cache_dir / 'identities.json'
 
-    async def startup(self):
-        """Startup routine"""
-        _LOGGER.info("nothing to startup.")
-
-    async def cleanup(self):
-        """Cleanup routine"""
-        _LOGGER.info("nothing to cleanup.")
-
-    async def context(self, _webapp: Application):
-        """Context"""
-        _LOGGER.info("storage starting up.")
-        await self.startup()
-        yield
-        _LOGGER.info("storage cleaning up.")
-        await self.cleanup()
-
     def setup(self, webapp: Application):
         """Setup web application storage"""
         _LOGGER.info("install storage...")
         webapp[_FUSION_STORAGE] = self
-        webapp.cleanup_ctx.append(self.context)
         _LOGGER.info("storage installed.")
 
     async def attach_case(self, case_guid: UUID, next_case_guid: UUID) -> bool:
