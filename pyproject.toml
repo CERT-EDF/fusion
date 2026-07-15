@@ -56,11 +56,11 @@ include = ["edf_fusion", "edf_fusion.*"]
 version_file = "edf_fusion/__version__.py"
 
 
-[tool.black]
+[tool.ruff]
+include = ["pyproject.toml", "edf_fusion/**/*.py"]
+exclude = ["edf_fusion/__version__.py"]
 line-length = 79
-skip-string-normalization = true
 
 
-[tool.isort]
-profile = "black"
-line_length = 79
+[tool.ruff.format]
+quote-style = "preserve"
